@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+// API for communicating with and configuring the bbq20 device over I2C or USB?
 enum reg_id
 {
 	REG_ID_VER = 0x01, // fw version

@@ -1,4 +1,4 @@
-add_executable(i2c_puppet
+add_executable(bbq20
 	backlight.c
 	debug.c
 	fifo.c
@@ -15,9 +15,9 @@ add_executable(i2c_puppet
 
 add_compile_options(-Wall -Wextra -Wpedantic)
 
-target_include_directories(i2c_puppet PRIVATE ${CMAKE_CURRENT_LIST_DIR})
+target_include_directories(bbq20 PRIVATE ${CMAKE_CURRENT_LIST_DIR})
 
-target_link_libraries(i2c_puppet
+target_link_libraries(bbq20
 	cmsis_core
 	hardware_i2c
 	hardware_pwm
@@ -27,4 +27,4 @@ target_link_libraries(i2c_puppet
 )
 
 # create map/bin/hex/uf2 file in addition to elf
-pico_add_extra_outputs(i2c_puppet)
+pico_add_extra_outputs(bbq20)

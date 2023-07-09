@@ -7,6 +7,7 @@
 
 #define LIST_SIZE	10 // size of the list keeping track of all the pressed keys
 
+// Keys are defined as entries, with three possible values
 struct entry
 {
 	char chr;
@@ -14,6 +15,9 @@ struct entry
 	enum key_mod mod;
 };
 
+// list_item represents a keypress, giving a start time, corresponding key
+// (entry) and state, array of applied mods, and an "effective_key" which is the
+// key that is resolved after applying the mods
 struct list_item
 {
 	const struct entry *p_entry;
@@ -23,11 +27,13 @@ struct list_item
 	char effective_key;
 };
 
+// Array of the pin numbers for each row
 static const uint8_t row_pins[NUM_OF_ROWS] =
 {
 	PINS_ROWS
 };
 
+// Array of the pin numbers for each column
 static const uint8_t col_pins[NUM_OF_COLS] =
 {
 	PINS_COLS
@@ -36,6 +42,9 @@ static const uint8_t col_pins[NUM_OF_COLS] =
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 
+// kbd_entries is effectively a keymap using a 2d array (rows x columns) of the
+// entry data structure. It can be seen that the rows and columns don't match
+// the rows and columns of the keyboard, so it isn't an ideal abstraction for mapping keys.
 static const struct entry kbd_entries[][NUM_OF_COLS] =
 {
 	{ { KEY_JOY_CENTER },  { 'W', '1' },              { 'G', '/' },              { 'S', '4' },              { 'L', '"'  },  { 'H' , ':' } },
@@ -47,6 +56,9 @@ static const struct entry kbd_entries[][NUM_OF_COLS] =
 	{ { },                 { 'A', '*' },              { .mod = KEY_MOD_ID_SHR }, { 'P', '@' },              { '\b' },       { '\n', '|' } },
 };
 
+// additional datastructure handled similarly to kbd_entries but for buttons?
+// uncertain what buttons these are, as the top row buttons (e.g. blackberry
+// button, end call button) seem to be handled in kbd_entries.
 #if NUM_OF_BTNS > 0
 static const struct entry btn_entries[NUM_OF_BTNS] =
 {
@@ -61,15 +73,22 @@ static const uint8_t btn_pins[NUM_OF_BTNS] =
 
 #pragma GCC diagnostic pop
 
+// global persistant data for the keyboard (i.e. self)
 static struct
 {
-	struct key_lock_callback *lock_callbacks;
+        // linked lists of callbacks for different modules to handle events
+        // (i.e. usb, interrupts)
+        struct key_lock_callback *lock_callbacks;
 	struct key_callback *key_callbacks;
 
+        // list of keypress events
 	struct list_item list[LIST_SIZE];
 
-	bool mods[KEY_MOD_ID_LAST];
+        // bitfield of modifiers currently applied to the keyboard (if sending
+        // the modifiers over usb, may want to remove / modify this)
+        bool mods[KEY_MOD_ID_LAST];
 
+        // flags for handling locks
 	bool capslock_changed;
 	bool capslock;
 
@@ -86,8 +105,10 @@ static void transition_to(struct list_item * const p_item, const enum key_state 
 	if (!p_entry)
 		return;
 
+        // resolve the "effective_key" after applying modifiers
 	if (p_item->effective_key == '\0') {
 		char key = p_entry->chr;
+                // send a modifier key if configured to report mods
 		switch (p_entry->mod) {
 			case KEY_MOD_ID_ALT:
 				if (reg_is_bit_set(REG_ID_CFG, CFG_REPORT_MODS))
@@ -112,13 +133,16 @@ static void transition_to(struct list_item * const p_item, const enum key_state 
 			default:
 			{
 				if (reg_is_bit_set(REG_ID_CFG, CFG_USE_MODS)) {
+                                        // check which modifiers are currently applied/active
 					const bool shift = (self.mods[KEY_MOD_ID_SHL] || self.mods[KEY_MOD_ID_SHR]) | self.capslock;
 					const bool alt = self.mods[KEY_MOD_ID_ALT] | self.numlock;
 					const bool is_button = (key <= KEY_BTN_RIGHT1) || ((key >= KEY_BTN_LEFT2) && (key <= KEY_BTN_RIGHT2));
 
+                                        // "apply" modifiers
 					if (alt && !is_button) {
 						key = p_entry->alt;
 					} else if (!shift && (key >= 'A' && key <= 'Z')) {
+                                                // set non-shifted letters to lowercase by adding a space (0x32)
 						key = (key + ' ');
 					}
 				}
@@ -127,49 +151,64 @@ static void transition_to(struct list_item * const p_item, const enum key_state 
 			}
 		}
 
+                // set the "effective key" to the resulting key
 		p_item->effective_key = key;
 	}
 
 	if (p_item->effective_key == '\0')
 		return;
 
+        // inject the keypress event into the public fifo and send over usb
 	keyboard_inject_event(p_item->effective_key, next_state);
 }
 
 static void next_item_state(struct list_item * const p_item, const bool pressed)
 {
-	switch (p_item->state) {
+        // State machine for keypress events (i.e. hold, pressed, etc.). The
+        // state is propagated with the key for use in the logic of the callback
+        switch (p_item->state) {
 		case KEY_STATE_IDLE:
 			if (pressed) {
+                                // TODO may be able to handle layer toggling in here?
+                                // if the key is a modifier, set the mods bitfield accordingly
 				if (p_item->p_entry->mod != KEY_MOD_ID_NONE)
 					self.mods[p_item->p_entry->mod] = true;
 
+                                // handle capslock enable
 				if (!self.capslock_changed && self.mods[KEY_MOD_ID_SHR] && self.mods[KEY_MOD_ID_ALT]) {
 					self.capslock = true;
 					self.capslock_changed = true;
 				}
 
+                                // handle numlock enable
 				if (!self.numlock_changed && self.mods[KEY_MOD_ID_SHL] && self.mods[KEY_MOD_ID_ALT]) {
 					self.numlock = true;
 					self.numlock_changed = true;
 				}
 
+                                // handle capslock disable
 				if (!self.capslock_changed && (self.mods[KEY_MOD_ID_SHL] || self.mods[KEY_MOD_ID_SHR])) {
 					self.capslock = false;
 					self.capslock_changed = true;
 				}
 
+                                // handle numlock disable
 				if (!self.numlock_changed && (self.mods[KEY_MOD_ID_SHL] || self.mods[KEY_MOD_ID_SHR])) {
 					self.numlock = false;
 					self.numlock_changed = true;
 				}
 
+                                // set "changed" flags to false when alt key nolonger held
 				if (!self.mods[KEY_MOD_ID_ALT]) {
 					self.capslock_changed = false;
 					self.numlock_changed = false;
 				}
 
-				if (self.lock_callbacks && (self.capslock_changed || self.numlock_changed)) {
+                                // if either of the lock events are changed,
+                                // handle all the "key_lock" callbacks. note
+                                // there is no usb callback for the key_lock, so
+                                // nothing is sent to the computer
+                                if (self.lock_callbacks && (self.capslock_changed || self.numlock_changed)) {
 					struct key_lock_callback *cb = self.lock_callbacks;
 					while (cb) {
 						cb->func(self.capslock_changed, self.numlock_changed);
@@ -178,6 +217,7 @@ static void next_item_state(struct list_item * const p_item, const bool pressed)
 					}
 				}
 
+                                // transition the state machine and handle the keypress
 				transition_to(p_item, KEY_STATE_PRESSED);
 
 				p_item->hold_start_time = to_ms_since_boot(get_absolute_time());
@@ -210,21 +250,32 @@ static void next_item_state(struct list_item * const p_item, const bool pressed)
 	}
 }
 
+// Button matrix key scanning, (i.e. also where the magic happens)
+// will scan the matrix periodically according to the timer
 static int64_t timer_task(alarm_id_t id, void *user_data)
 {
 	(void)id;
 	(void)user_data;
 
+        // Loop over all columns
 	for (uint32_t c = 0; c < NUM_OF_COLS; ++c) {
+                // set up the gpio for the column
 		gpio_pull_up(col_pins[c]);
 		gpio_put(col_pins[c], 0);
 		gpio_set_dir(col_pins[c], GPIO_OUT);
 
+
+                // Loop over the rows in the column
 		for (uint32_t r = 0; r < NUM_OF_ROWS; ++r) {
+                        // Check if the specific button is pressed
 			const bool pressed = (gpio_get(row_pins[r]) == 0);
+                        // Get the overall index of the key
 			const int32_t key_idx = (int32_t)((r * NUM_OF_COLS) + c);
 
-			int32_t list_idx = -1;
+                        // if the key is already in the list (i.e. it
+                        // has already been pressed) find the index of the item
+                        // in the list, and use that list_item to update the state machine
+                        int32_t list_idx = -1;
 			for (int32_t i = 0; i < LIST_SIZE; ++i) {
 				if (self.list[i].p_entry != &((const struct entry*)kbd_entries)[key_idx])
 					continue;
@@ -233,15 +284,21 @@ static int64_t timer_task(alarm_id_t id, void *user_data)
 				break;
 			}
 
+                        // update the state machine for the list item if one was found
 			if (list_idx > -1) {
 				next_item_state(&self.list[list_idx], pressed);
 				continue;
 			}
 
+                        // if the button is not pressed do nothing
 			if (!pressed)
 				continue;
 
-			for (uint32_t i = 0 ; i < LIST_SIZE; ++i) {
+                        // if the button is pressed, find the first available
+                        // empty slot in the list, and populate that list item
+                        // with the data for the button. If there is no avaiable
+                        // space in the list, then the keypress is ignored.
+                        for (uint32_t i = 0 ; i < LIST_SIZE; ++i) {
 				if (self.list[i].p_entry != NULL)
 					continue;
 
@@ -254,11 +311,13 @@ static int64_t timer_task(alarm_id_t id, void *user_data)
 			}
 		}
 
+                // turn of the gpio for the column
 		gpio_put(col_pins[c], 1);
 		gpio_disable_pulls(col_pins[c]);
 		gpio_set_dir(col_pins[c], GPIO_IN);
 	}
 
+        // Do the same as above, but for buttons
 #if NUM_OF_BTNS > 0
 	for (uint32_t b = 0; b < NUM_OF_BTNS; ++b) {
 		const bool pressed = (gpio_get(btn_pins[b]) == 0);
@@ -301,6 +360,7 @@ static int64_t timer_task(alarm_id_t id, void *user_data)
 void keyboard_inject_event(char key, enum key_state state)
 {
 	const struct fifo_item item = { key, state };
+        // add the keypress event to the fifo
 	if (!fifo_enqueue(item)) {
 		if (reg_is_bit_set(REG_ID_CFG, CFG_OVERFLOW_INT))
 			reg_set_bit(REG_ID_INT, INT_OVERFLOW);
@@ -309,7 +369,10 @@ void keyboard_inject_event(char key, enum key_state state)
 			fifo_enqueue_force(item);
 	}
 
-	struct key_callback *cb = self.key_callbacks;
+        // go through the callback linked list and call all appendend callbacks
+        // One of these callbacks is the usb callback, which handles sending the
+        // right scancode over usb
+        struct key_callback *cb = self.key_callbacks;
 	while (cb) {
 		cb->func(key, state);
 
@@ -317,6 +380,7 @@ void keyboard_inject_event(char key, enum key_state state)
 	}
 }
 
+// function to check if any key is currently pressed
 bool keyboard_is_key_down(char key)
 {
 	for (int32_t i = 0; i < LIST_SIZE; ++i) {
@@ -337,6 +401,7 @@ bool keyboard_is_key_down(char key)
 	return false;
 }
 
+// function to check if any modifiers are currently applied
 bool keyboard_is_mod_on(enum key_mod mod)
 {
 	return self.mods[mod];
@@ -411,5 +476,7 @@ void keyboard_init(void)
 	}
 #endif
 
-	add_alarm_in_ms(reg_get_value(REG_ID_FRQ), timer_task, NULL, true);
+        // setup the timer_task to be triggered periodically accoriding to the
+        // configured value in the register
+        add_alarm_in_ms(reg_get_value(REG_ID_FRQ), timer_task, NULL, true);
 }

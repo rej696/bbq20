@@ -129,6 +129,7 @@ void reg_process_packet(uint8_t in_reg, uint8_t in_data, uint8_t *out_buffer, ui
 		break;
 
 	case REG_ID_KEY:
+                // return the number of keys in the fifo
 		out_buffer[0] = fifo_count();
 		out_buffer[0] |= keyboard_get_numlock()  ? KEY_NUMLOCK  : 0x00;
 		out_buffer[0] |= keyboard_get_capslock() ? KEY_CAPSLOCK : 0x00;
@@ -137,6 +138,7 @@ void reg_process_packet(uint8_t in_reg, uint8_t in_data, uint8_t *out_buffer, ui
 
 	case REG_ID_FIF:
 	{
+                // consume the key and state from the front of the queue
 		const struct fifo_item item = fifo_dequeue();
 
 		out_buffer[0] = (uint8_t)item.state;

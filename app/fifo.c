@@ -1,6 +1,7 @@
 #include "app_config.h"
 #include "fifo.h"
 
+// Fifo is a circular queue, which shows the most recent keypress events
 static struct
 {
 	struct fifo_item fifo[KEY_FIFO_SIZE];

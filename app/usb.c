@@ -22,7 +22,7 @@ static struct
 	uint8_t write_len;
 } self;
 
-// TODO: What about Ctrl?
+// TODO: What about Ctrl? indeed...
 // TODO: What should L1, L2, R1, R2 do
 // TODO: Should touch send arrow keys as an option?
 
@@ -45,16 +45,21 @@ static int64_t timer_task(alarm_id_t id, void *user_data)
 	return USB_TASK_INTERVAL_US;
 }
 
+
+// This is where the magic happens and the keys are turned to scan_codes
 static void key_cb(char key, enum key_state state)
 {
-	// Don't send mods over USB
+	// Don't send mods over USB, even if configured?
+        // May want to change this
 	if ((key == KEY_MOD_SHL) ||
 		(key == KEY_MOD_SHR) ||
 		(key == KEY_MOD_ALT) ||
 		(key == KEY_MOD_SYM))
 		return;
 
+        // Check if keyboard interface is ready for use and if the keyboard is enabled in the configuration.
 	if (tud_hid_n_ready(USB_ITF_KEYBOARD) && reg_is_bit_set(REG_ID_CF2, CF2_USB_KEYB_ON)) {
+                // get mapping table between ascii and scan_codes
 		uint8_t conv_table[128][2]		= { HID_ASCII_TO_KEYCODE };
 		conv_table['\n'][1]				= HID_KEY_ENTER; // Fixup: Enter instead of Return
 		conv_table[KEY_JOY_UP][1]		= HID_KEY_ARROW_UP;
@@ -65,6 +70,7 @@ static void key_cb(char key, enum key_state state)
 		uint8_t keycode[6] = { 0 };
 		uint8_t modifier   = 0;
 
+
 		if (state == KEY_STATE_PRESSED) {
 			if (conv_table[(int)key][0])
 				modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
@@ -72,10 +78,15 @@ static void key_cb(char key, enum key_state state)
 			keycode[0] = conv_table[(int)key][1];
 		}
 
+                // send keycode over usb (only 0th index in keycode array is populated, and modifier is always 0)
+                // only send if initial press (i.e. don't repeatedly send on hold)
+                // may need to use modifier to send ctrl/shift etc.
 		if (state != KEY_STATE_HOLD)
+                        // TODO need to investigate tinyusb keyboard functions.
 			tud_hid_n_keyboard_report(USB_ITF_KEYBOARD, 0, modifier, keycode);
 	}
 
+        // send mouse click events
 	if (tud_hid_n_ready(USB_ITF_MOUSE) && reg_is_bit_set(REG_ID_CF2, CF2_USB_MOUSE_ON)) {
 		if (key == KEY_JOY_CENTER) {
 			if (state == KEY_STATE_PRESSED) {
@@ -94,6 +105,7 @@ static void key_cb(char key, enum key_state state)
 }
 static struct key_callback key_callback = { .func = key_cb };
 
+// send mouse move events from touchpad
 static void touch_cb(int8_t x, int8_t y)
 {
 	if (!tud_hid_n_ready(USB_ITF_MOUSE) || !reg_is_bit_set(REG_ID_CF2, CF2_USB_MOUSE_ON))
@@ -127,6 +139,7 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t rep
 	(void)len;
 }
 
+// handle data received over usb (i.e. configuration using python scrypt)
 void tud_vendor_rx_cb(uint8_t itf)
 {
 //	printf("%s: itf: %d, avail: %d\r\n", __func__, itf, tud_vendor_n_available(itf));
