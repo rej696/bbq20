@@ -56,6 +56,13 @@ static const struct entry kbd_entries[][NUM_OF_COLS] =
 	{ { },                 { 'A', '*' },              { .mod = KEY_MOD_ID_SHR }, { 'P', '@' },              { '\b' },       { '\n', '|' } },
 };
 
+static const char button_map[4][4] = {
+    { 0x1B, '&', '=', '\\' },
+    { '*', '%', '[', ']' },
+    { '<', '>', '{', '}' },
+    { KEY_JOY_LEFT, KEY_JOY_DOWN, KEY_JOY_UP, KEY_JOY_RIGHT }
+};
+
 // additional datastructure handled similarly to kbd_entries but for buttons?
 // uncertain what buttons these are, as the top row buttons (e.g. blackberry
 // button, end call button) seem to be handled in kbd_entries.
@@ -143,18 +150,11 @@ static void transition_to(struct list_item * const p_item, const enum key_state 
                                             || (key == KEY_BTN_LEFT2));
                                         const bool ctrl = self.mods[KEY_MOD_ID_SYM];
 
-                                        static const char button_map[4][4] = {
-                                            { 0x1B, '%', '=', '\\' },
-                                            { '[', ']', '<', '>' },
-                                            { '{', '}', '%', '^'},
-                                            { KEY_JOY_LEFT, KEY_JOY_DOWN, KEY_JOY_UP, KEY_JOY_RIGHT }
-                                        };
-
                                         if (is_button) {
                                             int idx = 0;
                                             if (alt) idx = 1;
-                                            if (ctrl) idx = 2;
-                                            if (shift) idx = 3;
+                                            if (shift) idx = 2;
+                                            if (ctrl) idx = 3;
 
                                             int btn = 0;
                                             switch (key) {
