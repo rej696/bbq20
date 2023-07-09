@@ -136,14 +136,61 @@ static void transition_to(struct list_item * const p_item, const enum key_state 
                                         // check which modifiers are currently applied/active
 					const bool shift = (self.mods[KEY_MOD_ID_SHL] || self.mods[KEY_MOD_ID_SHR]) | self.capslock;
 					const bool alt = self.mods[KEY_MOD_ID_ALT] | self.numlock;
-					const bool is_button = (key <= KEY_BTN_RIGHT1) || ((key >= KEY_BTN_LEFT2) && (key <= KEY_BTN_RIGHT2));
+					/* const bool is_button = (key <= KEY_BTN_RIGHT1) || ((key >= KEY_BTN_LEFT2) && (key <= KEY_BTN_RIGHT2)); */
+					const bool is_button = ((key == KEY_BTN_RIGHT1)
+                                            || (key == KEY_BTN_RIGHT2)
+                                            || (key == KEY_BTN_LEFT1)
+                                            || (key == KEY_BTN_LEFT2));
+                                        const bool ctrl = self.mods[KEY_MOD_ID_SYM];
+
+                                        static const char button_map[4][4] = {
+                                            { 0x1B, '%', '=', '\\' },
+                                            { '[', ']', '<', '>' },
+                                            { '{', '}', '%', '^'},
+                                            { KEY_JOY_LEFT, KEY_JOY_DOWN, KEY_JOY_UP, KEY_JOY_RIGHT }
+                                        };
+
+                                        if (is_button) {
+                                            int idx = 0;
+                                            if (alt) idx = 1;
+                                            if (ctrl) idx = 2;
+                                            if (shift) idx = 3;
+
+                                            int btn = 0;
+                                            switch (key) {
+                                                case KEY_BTN_LEFT1:
+                                                    btn = 0;
+                                                    break;
+                                                case KEY_BTN_LEFT2:
+                                                    btn = 1;
+                                                    break;
+                                                case KEY_BTN_RIGHT1:
+                                                    btn = 2;
+                                                    break;
+                                                case KEY_BTN_RIGHT2:
+                                                    btn = 3;
+                                                    break;
+                                                default:
+                                                    // unreachable
+                                                    break;
+                                            }
+
+                                            key = button_map[idx][btn];
+                                        }
 
                                         // "apply" modifiers
 					if (alt && !is_button) {
 						key = p_entry->alt;
-					} else if (!shift && (key >= 'A' && key <= 'Z')) {
+					} else if ((key >= 'A') && (key <= 'Z')) {
+                                            if (ctrl) {
+                                                // send control key by subtracting 0x40
+                                                key = key - 0x40;
+                                            } else if (!shift) {
                                                 // set non-shifted letters to lowercase by adding a space (0x32)
 						key = (key + ' ');
+                                            } else {
+                                                // uppercase do nothing
+                                            }
 					}
 				}
 

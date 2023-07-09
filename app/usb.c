@@ -60,8 +60,9 @@ static void key_cb(char key, enum key_state state)
         // Check if keyboard interface is ready for use and if the keyboard is enabled in the configuration.
 	if (tud_hid_n_ready(USB_ITF_KEYBOARD) && reg_is_bit_set(REG_ID_CF2, CF2_USB_KEYB_ON)) {
                 // get mapping table between ascii and scan_codes
-		uint8_t conv_table[128][2]		= { HID_ASCII_TO_KEYCODE };
+		uint8_t conv_table[256][2]		= { HID_ASCII_TO_KEYCODE };
 		conv_table['\n'][1]				= HID_KEY_ENTER; // Fixup: Enter instead of Return
+		conv_table['\b'][1]				= HID_KEY_BACKSPACE; // Fixup: HID Backspace instead of \b
 		conv_table[KEY_JOY_UP][1]		= HID_KEY_ARROW_UP;
 		conv_table[KEY_JOY_DOWN][1]		= HID_KEY_ARROW_DOWN;
 		conv_table[KEY_JOY_LEFT][1]		= HID_KEY_ARROW_LEFT;
@@ -72,10 +73,19 @@ static void key_cb(char key, enum key_state state)
 
 
 		if (state == KEY_STATE_PRESSED) {
-			if (conv_table[(int)key][0])
-				modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+			if (conv_table[(int)key][0]) {
+                            modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+                        } else if ((key < 0x20) && (key != '\n') &&
+                                   (key != '\b') && (key != '\t') &&
+                                   (key != 0x1B)) {
+                            // its a control key
+                            // backsapce and enter are correctly handled in the
+                            // conv_table
+                            modifier = KEYBOARD_MODIFIER_LEFTCTRL;
+                            key = key + 0x40;
+                        }
 
-			keycode[0] = conv_table[(int)key][1];
+                        keycode[0] = conv_table[(int)key][1];
 		}
 
                 // send keycode over usb (only 0th index in keycode array is populated, and modifier is always 0)
@@ -83,6 +93,7 @@ static void key_cb(char key, enum key_state state)
                 // may need to use modifier to send ctrl/shift etc.
 		if (state != KEY_STATE_HOLD)
                         // TODO need to investigate tinyusb keyboard functions.
+                        // modifier is a bitmap so can apply multiple mods using the masks "&="
 			tud_hid_n_keyboard_report(USB_ITF_KEYBOARD, 0, modifier, keycode);
 	}
 
